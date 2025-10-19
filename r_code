@@ -1,0 +1,115 @@
+##https://data.worldbank.org/indicator
+
+pacman::p_load(dplyr, wbstats, ggplot2, rio, tidyr, janitor)
+
+############### urban data ############
+
+indicators <- c(
+  'EN.URB.LCTY.UR.ZS', #Population in the largest city (% of urban population)
+  'EN.URB.MCTY.TL.ZS',#Population in urban agglomerations of more than 1 million (% of total population)
+  'SH.STA.BASS.UR.ZS', # People using at least basic sanitation services, urban (% of urban population)
+  'SH.STA.TRAF.P5', # Mortality rate attributed to road traffic injuries (per 100,000 population)
+  'SM.POP.NETM', # Net migration
+  'SH.STA.MMRT', # Maternal mortality ratio (modeled estimate, per 100,000 live births)
+  'EN.GHG.ALL.PC.CE.AR5', # Greenhouse gas emissions per capita (metric tons of CO2 equivalent)
+  'EN.ATM.PM25.MC.M3', # PM2.5 air pollution, mean annual exposure (micrograms per cubic meter)
+  "SN.ITK.SVFI.ZS",# Prevalence of severe food insecurity in the population (%)
+  'GE.PER.RNK', #Government Effectiveness: Percentile Rank
+  'EG.FEC.RNEW.ZS', # Renewable energy consumption (% of total final energy consumption)
+  'SL.UEM.TOTL.ZS', # Unemployment, total (% of total labor force)
+  'FP.CPI.TOTL.ZG', # Inflation, consumer prices (annual %)
+  'NE.EXP.GNFS.ZS', # Exports of goods and services (% of GDP)
+  'NV.AGR.TOTL.ZS', # Agriculture, value added (% of GDP)
+  'SP.POP.DPND', # Age Dependency ratio (% of working-age population)
+  'SP.URB.GROW', # Urban population growth (annual %)
+  'SP.URB.TOTL.IN.ZS', # Urban population (% of total population)
+  'AG.LND.AGRI.ZS', # Agricultural land (% of land area)
+  'AG.LND.FRST.ZS' ,# Forest area (% of land area)
+  "SN.ITK.DEFC.ZS", # Prevalence of undernourishment (% of population)
+  'SN.ITK.SVFI.ZS', #Prevalence of severe food insecurity in the population (%)
+  'SH.DTH.COMM.ZS')# Deaths due to communicable diseases (% of total deaths)
+
+df <- WDI(
+  country = "all",
+  indicator = indicators,
+  start = 1960,
+  end = as.numeric(format(Sys.Date(), "%Y")),
+  extra = TRUE,
+  cache = NULL)
+
+# rename
+names(df)[names(df) %in% indicators] <- c(
+  "pop_largest_city",         # EN.URB.LCTY.UR.ZS
+  "pop_million_plus",         # EN.URB.MCTY.TL.ZS
+  "urban_sanitation",         # SH.STA.BASS.UR.ZS
+  "road_mortality",           # SH.STA.TRAF.P5
+  "net_migration",            # SM.POP.NETM
+  "maternal_mortality",       # SH.STA.MMRT
+  "ghg_per_capita",           # EN.GHG.ALL.PC.CE.AR5
+  "pm25_exposure",            # EN.ATM.PM25.MC.M3
+  "severe_food_insec",        # SN.ITK.SVFI.ZS
+  "gov_effectiveness",        # GE.PER.RNK
+  "renew_energy_pct",         # EG.FEC.RNEW.ZS
+  "unemployment_pct",         # SL.UEM.TOTL.ZS
+  "inflation_pct",            # FP.CPI.TOTL.ZG
+  "exports_pct_gdp",          # NE.EXP.GNFS.ZS
+  "agri_value_pct_gdp",       # NV.AGR.TOTL.ZS
+  "age_dependency",           # SP.POP.DPND
+  "urban_growth_pct",         # SP.URB.GROW
+  "urban_pop_pct",            # SP.URB.TOTL.IN.ZS
+  "agri_land_pct",            # AG.LND.AGRI.ZS
+  "forest_area_pct",          # AG.LND.FRST.ZS
+  "undernourishment_pct",     # SN.ITK.DEFC.ZS
+  "severe_food_insec_dup",    # SN.ITK.SVFI.ZS (duplicate)
+  "comm_disease_deaths_pct")   # SH.DTH.COMM.ZS)
+
+
+
+
+#linear models
+
+library(gtsummary)
+library(purrr)
+library(dplyr)
+
+# Define nested models
+models <- list(
+    lm(severe_food_insec_dup ~ gov_effectiveness, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct + agri_value_pct_gdp, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct + agri_value_pct_gdp + age_dependency, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct + agri_value_pct_gdp + age_dependency + urban_pop_pct, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct + agri_value_pct_gdp + age_dependency + urban_pop_pct + forest_area_pct, data = df),
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct + agri_value_pct_gdp + age_dependency + urban_pop_pct + forest_area_pct + agri_land_pct, data = df))
+
+tbls <- purrr::map(models, ~ 
+                       tbl_regression(.x, exponentiate = F,conf.int = F) |>
+                       add_global_p() %>% 
+                       modify_column_hide(columns = p.value) %>% 
+                       add_glance_table(include = c(r.squared, adj.r.squared)))
+
+# Merge tables with model labels
+tbl_merged <- tbl_merge(tbls, tab_spanner = paste0("Model ", seq_along(tbls))) %>%
+    modify_table_body(~ .x %>% dplyr::arrange(row_type == "glance_statistic"))
+
+# Display as gt table
+as_gt(tbl_merged)
+
+
+#VIP plot
+df %>% 
+    lm(severe_food_insec_dup ~ gov_effectiveness + urban_growth_pct + unemployment_pct + inflation_pct + agri_value_pct_gdp + age_dependency + urban_pop_pct + forest_area_pct + agri_land_pct , data=.) %>%
+     broom::tidy() %>%
+     filter(term != "(Intercept)") %>%
+     mutate(importance = abs(estimate),
+            term = fct_reorder(term, importance)) %>%
+     ggplot(aes(x = term, y = importance, fill = estimate > 0)) +
+     geom_col(show.legend = FALSE, width = 0.6) +
+     coord_flip() +
+     scale_fill_manual(values = c("indianred", "paleturquoise4")) +
+     labs(title = "Variable Importance Based on Standardized Coefficients",
+          x = NULL, y = "Absolute Standardized Coefficient") +
+     theme_minimal(base_size = 13) +
+     theme(panel.grid.major.y = element_blank()) + theme_ipsum()
